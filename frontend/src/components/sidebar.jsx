@@ -1,11 +1,16 @@
+import { useState } from "react";
 import { Home, Users, Settings, X } from "lucide-react";
 import DarkModeToggle from "./DarkModeToggle";
+import DocumentList from "./documentList";
 
 export default function Sidebar({ closeSidebar }) {
+  const [showDocuments, setShowDocuments] = useState(false);
+
   const navItems = [
     { name: "Home", icon: Home, href: "/" },
     { name: "Users", icon: Users, href: "/users" },
     { name: "Settings", icon: Settings, href: "/settings" },
+    { name: "Documents", icon: Home }, // No href needed, we toggle list
   ];
 
   return (
@@ -22,9 +27,33 @@ export default function Sidebar({ closeSidebar }) {
       {/* Desktop title */}
       <h1 className="hidden lg:block text-2xl font-bold mb-6">My App</h1>
 
+      {/* Navigation Items */}
       <nav className="flex flex-col gap-2 flex-1">
         {navItems.map((item) => {
           const Icon = item.icon;
+
+          if (item.name === "Documents") {
+            // Documents toggle button
+            return (
+              <div key={item.name}>
+                <button
+                  onClick={() => setShowDocuments(!showDocuments)}
+                  className="flex items-center gap-3 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors w-full text-left"
+                >
+                  <Icon size={20} />
+                  <span>{item.name}</span>
+                </button>
+
+                {showDocuments && (
+                  <div className="mt-2 max-h-64 overflow-y-auto pl-6">
+                    <DocumentList />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Normal nav links
           return (
             <a
               key={item.name}
@@ -38,7 +67,10 @@ export default function Sidebar({ closeSidebar }) {
         })}
       </nav>
 
-      <DarkModeToggle />
+      {/* Dark Mode Toggle */}
+      <div className="mt-auto">
+        <DarkModeToggle />
+      </div>
     </aside>
   );
 }

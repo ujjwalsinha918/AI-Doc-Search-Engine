@@ -75,7 +75,7 @@ async def upload_file(
             
         # Step 4: Start async background task
         background_tasks.add_task(
-            background_process_file,
+            process_uploaded_file,
             file_path,
             file.filename,
             current_user["email"]

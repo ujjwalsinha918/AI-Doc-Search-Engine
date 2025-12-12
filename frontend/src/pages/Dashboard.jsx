@@ -13,66 +13,182 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleNewMessage = (text, fileInfo = null) => {
-    setMessages(prev => [...prev, {
+  const handleNewMessage = async (text, fileInfo = null) => {
+    // 1. Add user's message immediately
+    const userMsg = {
       id: Date.now(),
       role: "user",
       content: text,
-      file: fileInfo
-    }]);
+      file: fileInfo,
+    };
+    setMessages(prev => [...prev, userMsg]);
 
-    // Simulate AI response
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
+    // 2. Add empty AI message (will be filled live)
+    const aiMsgId = Date.now() + 1;
+    setMessages(prev => [
+      ...prev,
+      {
+        id: aiMsgId,
         role: "assistant",
-        content: fileInfo
-          ? `I've successfully added "${fileInfo.name}" to your knowledge base. You can now ask questions about it!`
-          : "How can I assist you today?"
-      }]);
-    }, 1000);
+        content: "",
+        citations: [],
+        isStreaming: true,
+      },
+    ]);
+
+    // 3. Call real /api/chat endpoint
+    try {
+      const response = await fetch("http://localhost:8000/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (!response.ok) throw new Error("Chat failed");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+
+            // Stream content token by token
+            if (parsed.content) {
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === aiMsgId
+                    ? { ...m, content: m.content + parsed.content }
+                    : m
+                )
+              );
+            }
+
+            // Final citations arrive once
+            if (parsed.citations) {
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === aiMsgId
+                    ? { ...m, citations: parsed.citations, isStreaming: false }
+                    : m
+                )
+              );
+            }
+          } catch (e) {
+            // Silent ignore malformed chunks
+          }
+        }
+      }
+    } catch (err) {
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === aiMsgId
+            ? { ...m, content: "Sorry, I couldn't respond right now.", isStreaming: false }
+            : m
+        )
+      );
+    }
   };
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Overlay & Sidebar — unchanged */}
+      {/* Sidebar & Overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 lg:hidden z-30" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/40 lg:hidden z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
-      <div className={`fixed lg:static inset-y-0 left-0 z-40 transform transition-transform duration-300
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+      <div
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 transform transition-transform duration-300
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+      >
         <Sidebar closeSidebar={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col">
-        {/* Headers — unchanged */}
+        {/* Headers */}
         <div className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 lg:hidden">
           <Menu className="w-6 h-6 cursor-pointer" onClick={() => setSidebarOpen(true)} />
           <h1 className="text-xl font-semibold dark:text-white">AI Assistant</h1>
         </div>
-        <div className="hidden lg:block"><HeaderWithUserProfile /></div>
+        <div className="hidden lg:block">
+          <HeaderWithUserProfile />
+        </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-auto p-6 space-y-5 pb-32">
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-32">
           {messages.length === 0 ? (
-            <div className="text-center mt-20">
-              <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Welcome!</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-3">Upload documents or ask anything</p>
+            <div className="text-center mt-32">
+              <h2 className="text-4xl font-bold text-gray-800 dark:text-white mb-4">
+                Your Private AI Assistant
+              </h2>
+              <p className="text-lg text-gray-600 dark:text-gray-400">
+                Upload documents and ask anything — your data never leaves your machine
+              </p>
             </div>
           ) : (
-            messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-2xl px-5 py-3 rounded-2xl shadow-sm ${
-                  msg.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-                }`}>
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+            messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-3xl px-6 py-4 rounded-2xl shadow-md ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap text-lg leading-relaxed">{msg.content || "..."}</p>
+
+                  {/* File upload confirmation */}
                   {msg.file && (
-                    <p className={`text-xs mt-2 opacity-90 ${msg.file.status === "error" ? "text-red-300" : ""}`}>
-                      {msg.file.status === "error" ? "Failed" : "Success"}: {msg.file.name}
+                    <p className="text-sm opacity-90 mt-3">
+                      {msg.file.status === "error" ? "Failed" : "Uploaded"}: {msg.file.name}
                     </p>
+                  )}
+
+                  {/* Streaming dots */}
+                  {msg.isStreaming && (
+                    <span className="inline-flex items-center mt-2">
+                      <span className="animate-bounce delay-0">.</span>
+                      <span className="animate-bounce delay-100">.</span>
+                      <span className="animate-bounce delay-200">.</span>
+                    </span>
+                  )}
+
+                  {/* Citations */}
+                  {msg.citations?.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-300 dark:border-gray-600">
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                        Sources:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.citations.map((cite, i) => (
+                          <span
+                            key={i}
+                            className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full"
+                          >
+                            [{i + 1}] {cite.source} • Page {cite.page}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -81,9 +197,9 @@ export default function Dashboard() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Fixed Chat Input */}
+        {/* Chat Input */}
         <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
-          <div className="max-w-4xl mx-auto py-3">
+          <div className="max-w-4xl mx-auto py-4 px-4">
             <ChatInput onSend={handleNewMessage} />
           </div>
         </div>

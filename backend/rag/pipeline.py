@@ -1,75 +1,58 @@
-# ============================================
-# RAG PIPELINE — extract → chunk → embed → store
-# ============================================
-
+# backend/rag/pipeline.py
 import os
 import uuid
 from pathlib import Path
-from typing import List
 
 import chromadb
-from chromadb.config import Settings
-
-# Tool that splits long text into smaller chunks
+# Splits long text into smaller overlapping chunks
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# Loaders that read/extract text from documents
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 
-# Use OpenAIEmbeddings with Grok (xAI) endpoint
-from langchain_openai import OpenAIEmbeddings
+# FREE LOCAL EMBEDDINGS — no API key needed!
+from langchain_huggingface import HuggingFaceEmbeddings
+from backend.db.database import SessionLocal
+from backend.models.document import Document
+from backend.models.models import User
 
 
 # =========================
-# CONFIGURATION
+# CONFIG
 # =========================
-
-# Folder where ChromaDB will store embeddings (vector DB)
+# Directory where ChromaDB data will be stored on disk
 CHROMA_DIR = Path("chroma_db")
+CHROMA_DIR.mkdir(exist_ok=True)  # Create folder if not exists
 
-# Create folder automatically if missing
-CHROMA_DIR.mkdir(exist_ok=True)
-
-# Create a *persistent* Chroma client = saves DB to disk
+# Persistent Chroma client (data survives server restart)
 client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
-
-# Create or fetch a collection for a specific user
 def get_or_create_collection(user_email: str):
     """
-    Each user gets their own vector database collection.
-    Example: docs_john_gmail_com
+    Each user gets their own vector collection.
+    Example:
+      k@gmail.com → docs_k_gmail_com
     """
-    # Clean email so it's usable as a folder/collection name
     collection_name = f"docs_{user_email.replace('@', '_').replace('.', '_')}"
-    
     try:
-        # Try getting existing collection
         return client.get_collection(name=collection_name)
     except:
-        # If it doesn't exist → create new one
         return client.create_collection(name=collection_name)
 
-
-
-# Converts text into numeric vectors
-# Grok Embeddings (uses your XAI_API_KEY)
-embeddings = XAIEmbeddings(
-    model="text-embedding-3-small", 
-    xai_api_key=os.getenv("XAI_API_KEY")  
+# HuggingFace Embeddings 
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",  # Fast & accurate (384 dims)
+    model_kwargs={'device': 'cpu'},  
 )
 
-
-# Split text into chunks
+# Splits text into chunks of 1000 characters
+# with 200-character overlap to preserve context
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,       # each chunk = 1000 characters
-    chunk_overlap=200,     # overlap so meaning is preserved
+    chunk_size=1000,
+    chunk_overlap=200,
     length_function=len,
 )
 
-
 # =========================
-# MAIN PROCESSING FUNCTION
+# MAIN PIPELINE
 # =========================
 def process_uploaded_file(
     file_path: str,
@@ -77,95 +60,96 @@ def process_uploaded_file(
     user_email: str
 ) -> None:
     """
-    This function does all RAG steps:
-      1. Read PDF/DOCX/TXT
-      2. Extract full text
-      3. Split into chunks
-      4. Generate embeddings
-      5. Save to Chroma DB
-    And runs in background after upload.
+    Background job: PDF/TXT/DOCX → text → chunks → FREE embeddings → ChromaDB
     """
+    print(f"🚀 Starting RAG processing: {original_filename} for {user_email}")
 
-    print(f"Starting RAG processing: {original_filename} for {user_email}")
-
-    # Convert to Path object for safety
     file_path = Path(file_path)
-
-    # If file missing → stop
     if not file_path.exists():
-        print(f"File not found: {file_path}")
+        print(f"❌ File not found: {file_path}")
         return
 
     try:
-        # ============================
-        # 1. Choose the correct loader
-        # ============================
-
+        # 1. Extract text
         if file_path.suffix.lower() == ".pdf":
-            loader = PyPDFLoader(str(file_path))  # extract PDF pages
-
+            loader = PyPDFLoader(str(file_path))
+            print("📄 Extracting PDF...")
         elif file_path.suffix.lower() in {".docx", ".doc"}:
-            loader = Docx2txtLoader(str(file_path))  # extract doc/docx text
-
+            loader = Docx2txtLoader(str(file_path))
+            print("📝 Extracting DOCX...")
         elif file_path.suffix.lower() in {".txt", ".md"}:
-            loader = TextLoader(str(file_path), encoding="utf-8")  # read raw text
-
+            loader = TextLoader(str(file_path), encoding="utf-8")
+            print("📄 Extracting TXT/MD...")
         else:
-            print(f"Unsupported file type: {file_path.suffix}")
+            print(f"❌ Unsupported type: {file_path.suffix}")
             return
 
-        # Load the entire document as "pages" or "sections"
         documents = loader.load()
-        print(f"Extracted {len(documents)} page(s)/section(s)")
+        print(f"✅ Extracted {len(documents)} page(s)/section(s)")
 
-
-        # ============================
-        # 2. Split into chunks
-        # ============================
+        # Split large text into overlapping chunks
         chunks = text_splitter.split_documents(documents)
-        print(f"Split into {len(chunks)} chunks")
+        print(f"✂️ Split into {len(chunks)} chunks (1000 chars each)")
 
         if len(chunks) == 0:
-            print("No text extracted")
+            print("⚠️ No text extracted — skipping")
             return
 
-
-        # ============================
-        # 3. Generate embeddings + save
-        # ============================
-
-        # Get (or create) the vector collection for this user
+        # 3. Embed & store in Chroma
         collection = get_or_create_collection(user_email)
-
-        # Create unique IDs for each chunk
+        
+        # Generate unique IDs for each chunk
         ids = [str(uuid.uuid4()) for _ in chunks]
-
-        # Extract text of each chunk
+        
+        # Extract actual text from each chunk
         texts = [chunk.page_content for chunk in chunks]
-
-        # Metadata stored with each chunk
+        # Metadata helps with citations & debugging
         metadatas = []
         for i, chunk in enumerate(chunks):
             metadatas.append({
-                "source": original_filename,       # file name
-                "chunk_index": i,                   # which chunk number
+                "source": original_filename,   # File name
+                "chunk_index": i,              # Chunk number
                 "page": chunk.metadata.get("page", 0),
                 "total_chunks": len(chunks),
-                "user_email": user_email,           # helps filtering later
+                "user_email": user_email,
             })
 
-
-        # Add everything to Chroma
-        # Chroma generates embeddings automatically using OpenAI model
+        # Create embeddings locally and store everything in Chroma
         collection.add(
             ids=ids,
             documents=texts,
             metadatas=metadatas,
+            embeddings=embeddings.embed_documents(texts)  # Local computation
         )
 
-        print(f"Successfully stored {len(chunks)} chunks in Chroma for {user_email}")
-
+        print(f"🎉 Stored {len(chunks)} embedded chunks in Chroma for {user_email}")
+        
+        # === SAVE METADATA TO MYSQL ===
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.email == user_email).first()
+            if not user:
+                print(f"⚠️ User not found in DB: {user_email}")
+            else:
+                doc_record = Document(
+                    filename=original_filename,
+                    file_path=str(file_path),
+                    user_id=user.id,
+                    page_count=len(documents),
+                    chunk_count=len(chunks),
+                )
+                db.add(doc_record)
+                db.commit()
+                print(f"💾 Saved document metadata to MySQL (ID: {doc_record.id})")
+        except Exception as e:
+            print(f"❌ Failed to save metadata to MySQL: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     except Exception as e:
-        print(f"Error processing {original_filename}: {e}")
+        print(f"💥 Error processing {original_filename}: {e}")
         raise e
+    
+
+    
