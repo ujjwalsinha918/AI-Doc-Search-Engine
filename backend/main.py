@@ -1,12 +1,12 @@
 # backend/main.py
-import sys
-from pathlib import Path
+# import sys
+# from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent.parent))
+# sys.path.append(str(Path(__file__).parent.parent))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.database import engine, Base
-from backend.api.auth import router as auth_router
+from backend.api.auth import router as auth_router  # your auth router
 from backend.api.file import router as file_router  # your upload router
 from backend.api.chat import router as chat_router  # your chat router
 from backend.models import models  # Ensure models are imported

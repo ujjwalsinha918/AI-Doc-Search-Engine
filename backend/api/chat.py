@@ -2,18 +2,17 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
-import sys
-from pathlib import Path
+# from pathlib import Path
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Local LLM
 from langchain_ollama import OllamaLLM
 
 # Local utilities & RAG pipeline
-from api.utils import get_current_user
-from rag.pipeline import get_or_create_collection
+from backend.api.utils import get_current_user
+from backend.rag.pipeline import get_or_create_collection
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -30,6 +29,7 @@ llm = OllamaLLM(
 # ----------------------
 class ChatRequest(BaseModel):
     message: str
+    selected_docs: list[str] = None  # list of filenames to query 
 
 # ----------------------
 # Chat endpoint
@@ -44,6 +44,26 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     # Identify user (used to isolate their documents)
     user_email = current_user["email"]
     collection = get_or_create_collection(user_email)  # Get user's document collection
+    
+    # build filter for selected docs
+    where_clause = None
+    if request.selected_docs:
+        where_clause = {
+            "$or": [{"source": doc_name} for doc_name in request.selected_docs]
+        }
+        
+    # retrieve relevant chunks 
+    results = collection.query(
+        query_texts=[request.message],
+        n_results=6,
+        where=where_clause,
+        include=["documents", "metadatas"]
+    ) 
+       
+    # 5. Build context and citation list
+    context_parts = []    # Holds retrieved document text
+    sources = []          # Holds citation info
+    
 
     # Retrieve relevant documents (RAG)
     results = collection.query(
@@ -81,19 +101,9 @@ If no info, say: "I don't have information about that in your documents."
 
     # Streaming generator for LLM output to frontend
     def stream():
-        try:
-            # Stream tokens/chunks as they are generated
-            for chunk in llm.stream(prompt):
-                text = chunk.text if hasattr(chunk, "text") else str(chunk)
-                if text:
-                    yield f"data: {json.dumps({'content': text})}\n\n"
-            # Send sources after completion
-            yield f"data: {json.dumps({'citations': sources})}\n\n"
-            # Signal stream completion
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            print("Ollama error:", e)
-            yield f"data: {json.dumps({'content': 'Sorry, something went wrong.'})}\n\n"
-            yield "data: [DONE]\n\n"
+        for chunk in llm.stream(prompt):
+            yield f"data: {json.dumps({'content': chunk})}\n\n"
+        yield f"data: {json.dumps({'citations': sources})}\n\n"
+        yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

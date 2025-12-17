@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from backend.db.database import Base
 from datetime import datetime
+
 
 class Document(Base):
     __tablename__ = "documents"
@@ -9,7 +10,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String(255), nullable=False, index=True)
     file_path = Column(String(500), nullable=False)
-    upload_date = Column(String(100), default=datetime.utcnow())
+    upload_date = Column(DateTime, default=datetime.utcnow)
     page_count = Column(Integer, default=0)
     chunk_count = Column(Integer, default=0)
     

@@ -1,32 +1,89 @@
+// src/components/DocumentList.jsx
 import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 
-export default function DocumentsList() {
+
+export default function DocumentList({ onDocumentSelect }) {
   const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchDocuments = () => {
     fetch("http://localhost:8000/api/documents", {
       credentials: "include",
     })
       .then(res => res.json())
-      .then(data => setDocuments(data))
-      .catch(err => console.error("Failed to fetch documents:", err));
+      .then(data => {
+        setDocuments(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to fetch documents:", err);
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    fetchDocuments();
   }, []);
 
+  const handleDelete = async (docId) => {
+    if (!confirm("Delete this document? This cannot be undone.")) return;
+
+    try {
+      const res = await fetch(`http://localhost:8000/api/documents/${docId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (res.ok) {
+        // Remove from UI
+        setDocuments(prev => prev.filter(doc => doc.id !== docId));
+      } else {
+        alert("Failed to delete document");
+      }
+    } catch (err) {
+      alert("Error deleting document");
+    }
+  };
+
+  const handleDocumentCLick = (doc) => {
+    onDocumentSelect?.(doc.filename);
+  }
+
+  if (loading) {
+    return <span className="text-sm text-gray-500">Loading documents...</span>;
+  }
+
   if (documents.length === 0) {
-    return <span className="text-sm text-gray-500 dark:text-gray-400">No documents yet</span>;
+    return <span className="text-sm text-gray-500 italic">No documents uploaded yet</span>;
   }
 
   return (
-    <nav className="flex flex-col gap-1 overflow-y-auto">
+    <div className="space-y-1">
       {documents.map(doc => (
-        <a
+        <div
           key={doc.id}
-          href="#"
-          className="flex items-center gap-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-sm"
+          className="flex items-center justify-between p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition group"
         >
-          📄 {doc.name}
-        </a>
+          <button onClick={() => handleDocumentCLick(doc)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+            <span className="text-lg">📄</span>
+            <span className="text-sm truncate max-w-[180px]" title={doc.filename}>
+              {doc.filename}
+            </span>
+            <span className="text-xs text-gray-500">
+              ({doc.page_count} pages)
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleDelete(doc.id)}
+            className="opacity-0 group-hover:opacity-100 transition p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+            title="Delete document"
+          >
+            <Trash2 size={16} className="text-red-600 dark:text-red-400" />
+          </button>
+        </div>
       ))}
-    </nav>
+    </div>
   );
 }

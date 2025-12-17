@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { Home, Users, Settings, X } from "lucide-react";
+import { Home, Users, Settings, X, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import DarkModeToggle from "./DarkModeToggle";
-import DocumentList from "./documentList";
+import DocumentList from "./DocumentList";
 
-export default function Sidebar({ closeSidebar }) {
+export default function Sidebar({ closeSidebar, onDocumentSelect }) {
   const [showDocuments, setShowDocuments] = useState(false);
 
   const navItems = [
     { name: "Home", icon: Home, href: "/" },
     { name: "Users", icon: Users, href: "/users" },
     { name: "Settings", icon: Settings, href: "/settings" },
-    { name: "Documents", icon: Home }, // No href needed, we toggle list
+    { name: "Documents", icon: FileText }, // ← Better icon!
   ];
 
   return (
@@ -18,42 +18,44 @@ export default function Sidebar({ closeSidebar }) {
       {/* Mobile Close Button */}
       <div className="flex justify-between items-center lg:hidden mb-6">
         <h1 className="text-2xl font-bold">My App</h1>
-        <X
-          className="w-6 h-6 cursor-pointer"
-          onClick={closeSidebar}
-        />
+        <X className="w-6 h-6 cursor-pointer" onClick={closeSidebar} />
       </div>
 
       {/* Desktop title */}
       <h1 className="hidden lg:block text-2xl font-bold mb-6">My App</h1>
 
-      {/* Navigation Items */}
+      {/* Navigation */}
       <nav className="flex flex-col gap-2 flex-1">
         {navItems.map((item) => {
           const Icon = item.icon;
 
           if (item.name === "Documents") {
-            // Documents toggle button
             return (
               <div key={item.name}>
                 <button
                   onClick={() => setShowDocuments(!showDocuments)}
-                  className="flex items-center gap-3 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors w-full text-left"
+                  className="flex items-center justify-between p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors w-full text-left"
                 >
-                  <Icon size={20} />
-                  <span>{item.name}</span>
+                  <div className="flex items-center gap-3">
+                    <Icon size={20} />
+                    <span>{item.name}</span>
+                  </div>
+                  {showDocuments ? (
+                    <ChevronDown size={18} />
+                  ) : (
+                    <ChevronRight size={18} />
+                  )}
                 </button>
 
                 {showDocuments && (
-                  <div className="mt-2 max-h-64 overflow-y-auto pl-6">
-                    <DocumentList />
+                  <div className="mt-2 pl-6 max-h-64 overflow-y-auto border-l-2 border-gray-300 dark:border-gray-700">
+                    <DocumentList onDocumentSelect={onDocumentSelect} />
                   </div>
                 )}
               </div>
             );
           }
 
-          // Normal nav links
           return (
             <a
               key={item.name}

@@ -13,15 +13,20 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleNewMessage = async (text, fileInfo = null) => {
+  const handleNewMessage = async (text, metadata = null) => {
     // 1. Add user's message immediately
     const userMsg = {
       id: Date.now(),
       role: "user",
       content: text,
-      file: fileInfo,
+      file: metadata,
     };
     setMessages(prev => [...prev, userMsg]);
+
+    // 2. If it's a file upload notification, don't send to AI
+    if (metadata?.skipAIResponse){
+      return;    // Just show the message, don't get AI response
+    }
 
     // 2. Add empty AI message (will be filled live)
     const aiMsgId = Date.now() + 1;
@@ -102,6 +107,12 @@ export default function Dashboard() {
       );
     }
   };
+  
+  // Function to handle document selection from sidebar
+  const handleDocumentSelect = (documentName) => {
+    const message = `Tell me about ${documentName}`;
+    handleNewMessage(message);
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -112,12 +123,17 @@ export default function Dashboard() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+      {/* SINGLE Sidebar - removed duplicate */}
       <div
         className={`fixed lg:static inset-y-0 left-0 z-40 w-64 transform transition-transform duration-300
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
-      >
-        <Sidebar closeSidebar={() => setSidebarOpen(false)} />
-      </div>
+          >
+      <Sidebar 
+          closeSidebar={() => setSidebarOpen(false)} 
+          onDocumentSelect={handleDocumentSelect}  
+        />
+        </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">

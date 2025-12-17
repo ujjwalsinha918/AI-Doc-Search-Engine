@@ -40,7 +40,8 @@ export default function ChatInput({ onSend, isLoading = false }) {
         {
           type: "file",
           name: file.name,
-          status: "success"
+          status: "success",
+          skipAIResponse: true,   // Flag to tell parent not to send to AI
         }
       );
 
