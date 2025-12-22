@@ -12,7 +12,8 @@ from backend.api.chat import router as chat_router  # your chat router
 from backend.models import models  # Ensure models are imported
 from backend.api.documents import router as documents_router
 
-app = FastAPI(title="AI Knowledge Search Engine")
+app = FastAPI(title="AI Knowledge Search Engine", description="Personal RAG-powered document search and chat",
+    version="1.0.0",)
 
 # CORS
 app.add_middleware(
@@ -35,4 +36,8 @@ app.include_router(documents_router)
 
 @app.get("/")
 def root():
-    return {"message": "AI Knowledge Search Engine API v1"}
+    return {
+        "message": "AI Knowledge Search Engine API v1",
+        "docs": "/docs",
+        "redoc": "/redoc"
+        }
